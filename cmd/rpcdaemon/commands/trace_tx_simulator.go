@@ -116,7 +116,7 @@ func (st *SimulationTracer) CaptureEnter(typ vm.OpCode, from libcommon.Address, 
 	call := TxCall{
 		From:     &from,
 		To:       &to,
-		Calldata: input,
+		Calldata: common.CopyBytes(input),
 		Type:     hexutil.Uint(typ),
 	}
 	if value != nil {
@@ -137,15 +137,9 @@ func (st *SimulationTracer) recordLog(scope *vm.ScopeContext, topics int) {
 	log := &TxLog{}
 	offset := scope.Stack.Back(0).Uint64()
 	memlen := scope.Stack.Back(1).Uint64()
-	mem := scope.Memory.Data()
-	last := offset + memlen
-	if last >= uint64(len(mem)) {
-		last = uint64(len(mem))
-	}
-	if offset >= uint64(len(mem)) {
-		offset = 0
-	}
-	args := mem[offset:last]
+	mem := scope.Memory
+
+	args := mem.GetCopy(int64(offset), int64(memlen))
 	address := scope.Contract.CodeAddr
 	log.Args = args
 	log.ContractAddress = address
@@ -154,7 +148,7 @@ func (st *SimulationTracer) recordLog(scope *vm.ScopeContext, topics int) {
 	}
 	for i := 1; i <= topics; i++ {
 		topic := scope.Stack.Back(i + 1)
-		log.Topics = append(log.Topics, topic.Bytes())
+		log.Topics = append(log.Topics, topic.PaddedBytes(32))
 	}
 	st.Resp.Logs = append(st.Resp.Logs, log)
 }
