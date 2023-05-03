@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/holiman/uint256"
 	libcommon "github.com/ledgerwatch/erigon-lib/common"
@@ -66,6 +67,8 @@ type SimulationResult struct {
 	Valid            bool          `json:"valid"`
 	Calls            []*TxCall     `json:"calls,omitempty"`
 	Logs             []*TxLog      `json:"logs,omitempty"`
+	NsRuntime        int64         `json:"nsruntime"`
+	GasUsed          uint64        `json:"gasused"`
 }
 
 type SimulationTracer struct {
@@ -233,6 +236,7 @@ func (api *ErigonImpl) doSimulateTransactions(ctx context.Context, dbtx kv.Tx, m
 	if err != nil {
 		return nil, err
 	}
+
 	stateReader, err := rpchelper.CreateStateReader(ctx, dbtx, *parentNrOrHash, 0, api.filters, api.stateCache, api.historyV3(dbtx), chainConfig.ChainName)
 	if err != nil {
 		return nil, err
@@ -351,6 +355,7 @@ func (api *ErigonImpl) doSimulateTransactions(ctx context.Context, dbtx kv.Tx, m
 			return nil, fmt.Errorf("first run for txIndex %d error: %w", txIndex, err)
 		}
 		traceResult.Output = common.CopyBytes(execResult.ReturnData)
+		traceResult.GasUsed = execResult.UsedGas
 		/*if traceTypeStateDiff {
 			initialIbs := state.New(cloneReader)
 			sdMap := make(map[libcommon.Address]*StateDiffAccount)
@@ -381,6 +386,7 @@ func (api *ErigonImpl) doSimulateTransactions(ctx context.Context, dbtx kv.Tx, m
 }
 
 func (api *ErigonImpl) SimulateTransactions(ctx context.Context, parms SimulateParam) ([]*SimulationResult, error) {
+	startts := time.Now()
 	dbtx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
@@ -462,5 +468,13 @@ func (api *ErigonImpl) SimulateTransactions(ctx context.Context, parms SimulateP
 			return nil, fmt.Errorf("convert callParam to msg: %w", err)
 		}
 	}
-	return api.doSimulateTransactions(ctx, dbtx, msgs, callParams, parentNrOrHash, nil, true /* gasBailout */, parms.Overrides)
+	res, err := api.doSimulateTransactions(ctx, dbtx, msgs, callParams, parentNrOrHash, nil, true /* gasBailout */, parms.Overrides)
+	if err != nil {
+		return nil, err
+	}
+	rt := time.Since(startts)
+	if len(res) > 0 {
+		res[0].NsRuntime = rt.Nanoseconds()
+	}
+	return res, nil
 }
